@@ -25,6 +25,8 @@ pub trait Node: std::fmt::Debug {
     fn total_len(&self) -> usize;
     fn is_full(&self) -> bool;
     fn is_empty(&self) -> bool;
+    fn len(&self) -> usize;
+    fn pop_first_child(&mut self) -> Option<NodePtr>;
 }
 
 #[derive(Debug)]
@@ -65,7 +67,17 @@ impl BTree {
     }
 
     pub fn delete(&mut self, key: &Key) -> bool {
-        self.root.borrow_mut().delete(key)
+        let result = self.root.borrow_mut().delete(key);
+
+        if result && self.root.borrow_mut().is_empty() {
+            // If the root is empty, we can remove a level
+            let child = self.root.borrow_mut().pop_first_child();
+            match child {
+                Some(new_root) => self.root = new_root,
+                None => (),
+            };
+        }
+        return result
     }
 
     pub fn total_len(&self) -> usize {
@@ -150,12 +162,12 @@ impl Node for InternalNode {
 
     fn delete(&mut self, key: &Key) -> bool {
         match self.pivots.binary_search(&key) {
-            Ok(idx) => {
+            Ok(left_idx) => {
+                let idx = left_idx + 1;
                 if self.children[idx].borrow_mut().delete(key) {
                     if self.children[idx].borrow_mut().is_empty() {
-                        if self.pivots.len() > idx+1 { // Do we have a right sibling?
-                            
-                        }
+                        self.pivots.remove(idx);
+                        self.children.remove(idx);
                     } else {
                         self.pivots[idx] = self.children[idx].borrow_mut().get_first_key();
                     }
@@ -164,7 +176,28 @@ impl Node for InternalNode {
                 return false
             },
             // Key to remove is not a pivot, recursive delete in the child node
-            Err(idx) => self.children[idx].borrow_mut().delete(key),
+            Err(idx) => {
+                let deleted = self.children[idx].borrow_mut().delete(key);
+                // println!("Deleting {:?}", key);
+                if self.children[idx].borrow_mut().is_empty() {
+                    // If the child is an intermediary node it might still have a child, so let's fetch it
+                    let child = self.children[idx].borrow_mut().pop_first_child();
+                    if child.is_some() {
+                        self.children[idx] = child.unwrap()
+                    } else if self.children[idx+1].borrow().len() > 1 {
+                        // Right child is splitable
+                        let (key, right_node) = self.children[idx+1].borrow_mut().split();
+                        self.pivots[idx] = key;
+                        self.children.swap(idx, idx+1);
+                        self.children[idx+1] = right_node;
+                    } else {
+                        // right child is too small for split
+                        self.pivots.remove(idx);
+                        self.children.remove(idx);
+                    }
+                }
+                return deleted
+            }
         }
     }
 
@@ -182,6 +215,14 @@ impl Node for InternalNode {
 
     fn get_first_key(&self) -> Key {
         self.pivots[0]
+    }
+
+    fn len(&self) -> usize {
+        self.pivots.len()
+    }
+
+    fn pop_first_child(&mut self) -> Option<NodePtr> {
+        self.children.pop()
     }
 }
 
@@ -208,7 +249,7 @@ impl LeafNode {
 
 impl Node for LeafNode {
     fn split(&mut self) -> (Key, NodePtr) {
-        let mid = (self.keys.len() / 2) + 1;
+        let mid = self.keys.len() / 2;
 
         let right_node =  Rc::new(RefCell::from(LeafNode::new_from(
             &self.keys[mid..],
@@ -243,7 +284,7 @@ impl Node for LeafNode {
             Ok(idx) => {
                 self.keys.remove(idx);
                 self.values.remove(idx);
-                true
+                true 
             },
             Err(_) => false,
         }
@@ -259,6 +300,14 @@ impl Node for LeafNode {
 
     fn is_empty(&self) -> bool {
         self.keys.is_empty()
+    }
+
+    fn len(&self) -> usize {
+        self.keys.len()
+    }
+
+    fn pop_first_child(&mut self) -> Option<NodePtr> {
+        None
     }
 }
 
@@ -282,9 +331,6 @@ mod tests {
         
         for n in 0..nb_keys {
             key[0] = n;
-            if n == 49 {
-                println!("checkpoint");
-            }
             // println!("Inserting: {:?}", key[0]);
             btree.insert(key, 0);
             // println!("Tree: {:?}", btree);
@@ -307,7 +353,9 @@ mod tests {
         println!("Size: {}", btree.total_len());
         for n in 0..nb_keys {
             key[0] = n;
-            btree.delete(&key);
+            // println!("Deleting: {:?}", key[0]);
+            // println!("Tree: {:?}", btree);
+            assert!(btree.delete(&key));
         }
         println!("Size: {}", btree.total_len());
 
