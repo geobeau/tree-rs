@@ -17,7 +17,7 @@ const CHILDREN_SIZE: usize = INTERNAL_ITEMS_SIZE;
 
 
 pub trait Node: std::fmt::Debug {
-    fn get(&self, key: &Key) -> (bool, usize);
+    fn get(&self, key: &Key) -> Option<Value>;
     fn insert(&mut self, key: Key, val: Value);
     fn delete(&mut self, key: &Key) -> bool;
     fn split(&mut self) -> (Key, NodePtr);
@@ -62,8 +62,8 @@ impl BTree {
         self.root.borrow_mut().insert(key, val);
     }
 
-    pub fn get(&self, key: &Key) -> (bool, usize) {
-        return self.root.borrow().get(key)
+    pub fn get(&self, key: &Key) -> Option<Value> {
+        return self.root.borrow().get(key);
     }
 
     pub fn delete(&mut self, key: &Key) -> bool {
@@ -150,14 +150,12 @@ impl Node for InternalNode {
     }
 
 
-    fn get(&self, key: &Key) -> (bool, usize) {
+    fn get(&self, key: &Key) -> Option<Value> {
         let idx = match self.pivots.binary_search(&key) {
             Ok(idx) => idx+1, // If key=pivot, look in right child
             Err(idx) => idx,
         };
-        // println!("id: {}", idx);
-        let (ok, depth) = self.children[idx].borrow().get(key);
-        return (ok, depth+1)
+        return self.children[idx].borrow().get(key);
     }
 
     fn delete(&mut self, key: &Key) -> bool {
@@ -271,8 +269,11 @@ impl Node for LeafNode {
         }
     }
 
-    fn get(&self, key: &Key) -> (bool, usize) {
-        return (self.keys.binary_search(&key).is_ok(), 1)
+    fn get(&self, key: &Key) -> Option<Value> {
+        match self.keys.binary_search(&key) {
+            Ok(idx) => Some(self.values[idx]),
+            Err(_) => None,
+        }
     }
 
     fn get_first_key(&self) -> Key {
@@ -317,48 +318,65 @@ impl Node for LeafNode {
 mod tests {
     use super::*;
 
-    #[test]
-    fn test_btree() {
-        let nb_keys = 1000;
-        let mut btree = BTree::new();
+
+    fn test_insert<I>(btree: &mut BTree, keys: I)
+    where
+        I: Iterator<Item = u128> 
+    {
         let mut key: Key = [0; 1];
-
-        // stats
-        let mut max_depth = 0;
-        let mut min_depth = nb_keys as usize;
-        let mut sum_depth = 0;
-
-        
-        for n in 0..nb_keys {
+        let mut expected_len = 0;
+        for n in keys {
             key[0] = n;
-            // println!("Inserting: {:?}", key[0]);
             btree.insert(key, 0);
-            // println!("Tree: {:?}", btree);
-            if n+1 < btree.total_len() as u128 {
+            expected_len += 1;
+            if expected_len < btree.total_len() as u128 {
                 println!("Tree: {:?}", btree);
                 assert!(false);
             }
         }
+    }
 
-        for n in 0..nb_keys {
+    fn test_read<I>(btree: &mut BTree, keys: I)
+    where
+        I: Iterator<Item = u128> 
+    {
+        let mut key: Key = [0; 1];
+        for n in keys {
             key[0] = n;
-            // println!("Get: {:?}", key[0]);
-            let (ok, depth) = btree.get(&key);
-            max_depth = std::cmp::max(max_depth, depth);
-            min_depth = std::cmp::min(min_depth, depth);
-            sum_depth += depth;
-            assert!(ok);
+            assert!(btree.get(&key).is_some());
         }
-        println!("max: {}, min: {}, avg: {} (internal:{}, leaf: {})", max_depth, min_depth, (sum_depth / nb_keys as usize), PIVOTS_SIZE, LEAF_ITEMS_SIZE);
-        println!("Size: {}", btree.total_len());
-        for n in 0..nb_keys {
+    }
+
+    fn test_delete<I>(btree: &mut BTree, keys: I)
+    where
+        I: Iterator<Item = u128> 
+    {
+        let mut key: Key = [0; 1];
+        for n in keys {
             key[0] = n;
-            // println!("Deleting: {:?}", key[0]);
-            // println!("Tree: {:?}", btree);
             assert!(btree.delete(&key));
         }
-        println!("Size: {}", btree.total_len());
+    }
 
+    #[test]
+    // Insert, read, and delete in ascending order
+    fn test_asc_crud_btree() {
+        let nb_keys = 1000;
+        let mut btree = BTree::new();
+        test_insert(&mut btree, 0..nb_keys);
+        test_read(&mut btree, 0..nb_keys);
+        test_delete(&mut btree, 0..nb_keys);
+        assert!(btree.total_len() == 0)
+    }
 
+    #[test]
+    // Insert, read, and delete in descending order
+    fn test_desc_crud_btree() {
+        let nb_keys = 5;
+        let mut btree = BTree::new();
+        test_insert(&mut btree, (0..nb_keys).rev());
+        test_read(&mut btree, (0..nb_keys).rev());
+        test_delete(&mut btree, (0..nb_keys).rev());
+        assert!(btree.total_len() == 0)
     }
 }
