@@ -164,7 +164,7 @@ impl Node for InternalNode {
                 let idx = left_idx + 1;
                 if self.children[idx].borrow_mut().delete(key) {
                     if self.children[idx].borrow_mut().is_empty() {
-                        self.pivots.remove(idx);
+                        self.pivots.remove(left_idx);
                         self.children.remove(idx);
                     } else {
                         self.pivots[idx] = self.children[idx].borrow_mut().get_first_key();
@@ -354,6 +354,8 @@ mod tests {
         let mut key: Key = [0; 1];
         for n in keys {
             key[0] = n;
+            // println!("Tree: {:?}", btree);
+            // println!("Removing key: {:?}", key);
             assert!(btree.delete(&key));
         }
     }
@@ -372,7 +374,7 @@ mod tests {
     #[test]
     // Insert, read, and delete in descending order
     fn test_desc_crud_btree() {
-        let nb_keys = 5;
+        let nb_keys = 1000;
         let mut btree = BTree::new();
         test_insert(&mut btree, (0..nb_keys).rev());
         test_read(&mut btree, (0..nb_keys).rev());
