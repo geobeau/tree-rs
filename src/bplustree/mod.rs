@@ -1,8 +1,8 @@
-use std::usize;
-use std::{rc::Rc, cell::RefCell};
-use std::fmt::Debug;
 use arrayvec::ArrayVec;
 use rkyv::{Archive, Deserialize, Serialize};
+use std::fmt::Debug;
+use std::usize;
+use std::{cell::RefCell, rc::Rc};
 
 type Key = [u128; 1];
 type Value = u8;
@@ -10,11 +10,12 @@ type NodePtr = Rc<RefCell<dyn Node>>;
 
 // const NODE_SIZE: usize = 1024 * 4;
 const NODE_SIZE: usize = 64 * 4;
-const LEAF_ITEMS_SIZE: usize = (NODE_SIZE - 32) / (std::mem::size_of::<Key>() + std::mem::size_of::<Value>());
-const INTERNAL_ITEMS_SIZE: usize = (NODE_SIZE - 32) / (std::mem::size_of::<NodePtr>() + std::mem::size_of::<Key>());
+const LEAF_ITEMS_SIZE: usize =
+    (NODE_SIZE - 32) / (std::mem::size_of::<Key>() + std::mem::size_of::<Value>());
+const INTERNAL_ITEMS_SIZE: usize =
+    (NODE_SIZE - 32) / (std::mem::size_of::<NodePtr>() + std::mem::size_of::<Key>());
 const PIVOTS_SIZE: usize = INTERNAL_ITEMS_SIZE - 1;
 const CHILDREN_SIZE: usize = INTERNAL_ITEMS_SIZE;
-
 
 pub trait Node: std::fmt::Debug {
     fn get(&self, key: &Key) -> Option<Value>;
@@ -35,7 +36,6 @@ pub struct InternalNode {
     children: ArrayVec<NodePtr, CHILDREN_SIZE>,
 }
 
-
 #[derive(Archive, Deserialize, Serialize, Debug)]
 pub struct LeafNode {
     keys: ArrayVec<Key, LEAF_ITEMS_SIZE>,
@@ -44,20 +44,24 @@ pub struct LeafNode {
 
 #[derive(Debug)]
 pub struct BTree {
-    root: NodePtr
+    root: NodePtr,
 }
 
 impl BTree {
     pub fn new() -> BTree {
         BTree {
-            root: Rc::new(RefCell::from(LeafNode::new()))
+            root: Rc::new(RefCell::from(LeafNode::new())),
         }
     }
 
     pub fn insert(&mut self, key: Key, val: Value) {
         if self.root.borrow_mut().is_full() {
             let (pivot, child_node) = self.root.borrow_mut().split();
-            self.root = Rc::new(RefCell::from(InternalNode::new_with_key(pivot, self.root.to_owned(), child_node)));
+            self.root = Rc::new(RefCell::from(InternalNode::new_with_key(
+                pivot,
+                self.root.to_owned(),
+                child_node,
+            )));
         }
         self.root.borrow_mut().insert(key, val);
     }
@@ -77,14 +81,13 @@ impl BTree {
                 None => (),
             };
         }
-        return result
+        return result;
     }
 
     pub fn total_len(&self) -> usize {
         self.root.borrow().total_len()
     }
 }
-
 
 impl InternalNode {
     pub fn new() -> InternalNode {
@@ -113,15 +116,15 @@ impl InternalNode {
         node.pivots.push(key);
         node.children.push(left);
         node.children.push(right);
-        return node
+        return node;
     }
 
     pub fn try_split(&mut self, idx: usize) {
         if self.children[idx].borrow_mut().is_full() {
             let (pivot, child_node) = self.children[idx].borrow_mut().split();
-            // println!("Split detected: insert:{:?}; idx:{}; pivot:{:?}", key, idx, pivot); 
+            // println!("Split detected: insert:{:?}; idx:{}; pivot:{:?}", key, idx, pivot);
             self.pivots.insert(idx, pivot);
-            self.children.insert(idx+1, child_node);
+            self.children.insert(idx + 1, child_node);
         }
     }
 }
@@ -130,7 +133,10 @@ impl Node for InternalNode {
     fn insert(&mut self, key: Key, val: Value) {
         let mut idx = match self.pivots.binary_search(&key) {
             Ok(idx) => idx,
-            Err(idx) => {self.try_split(idx); idx},
+            Err(idx) => {
+                self.try_split(idx);
+                idx
+            }
         };
         // println!("{:?}", self);
         if idx < self.pivots.len() && key > self.pivots[idx] {
@@ -141,18 +147,20 @@ impl Node for InternalNode {
 
     fn split(&mut self) -> (Key, NodePtr) {
         let mid = (self.pivots.len() / 2) as usize;
-    
-        let right_node = Rc::new(RefCell::from(InternalNode::new_from(&self.pivots[mid+1..], &self.children[mid+1..])));
+
+        let right_node = Rc::new(RefCell::from(InternalNode::new_from(
+            &self.pivots[mid + 1..],
+            &self.children[mid + 1..],
+        )));
         let pivot = self.pivots[mid];
         self.pivots.truncate(mid);
-        self.children.truncate(mid+1);
-        return (pivot, right_node)
+        self.children.truncate(mid + 1);
+        return (pivot, right_node);
     }
-
 
     fn get(&self, key: &Key) -> Option<Value> {
         let idx = match self.pivots.binary_search(&key) {
-            Ok(idx) => idx+1, // If key=pivot, look in right child
+            Ok(idx) => idx + 1, // If key=pivot, look in right child
             Err(idx) => idx,
         };
         return self.children[idx].borrow().get(key);
@@ -169,10 +177,10 @@ impl Node for InternalNode {
                     } else {
                         self.pivots[idx] = self.children[idx].borrow_mut().get_first_key();
                     }
-                    return true
+                    return true;
                 }
-                return false
-            },
+                return false;
+            }
             // Key to remove is not a pivot, recursive delete in the child node
             Err(idx) => {
                 let deleted = self.children[idx].borrow_mut().delete(key);
@@ -182,19 +190,19 @@ impl Node for InternalNode {
                     let child = self.children[idx].borrow_mut().pop_first_child();
                     if child.is_some() {
                         self.children[idx] = child.unwrap()
-                    } else if self.children[idx+1].borrow().len() > 1 {
+                    } else if self.children[idx + 1].borrow().len() > 1 {
                         // Right child is splitable
-                        let (key, right_node) = self.children[idx+1].borrow_mut().split();
+                        let (key, right_node) = self.children[idx + 1].borrow_mut().split();
                         self.pivots[idx] = key;
-                        self.children.swap(idx, idx+1);
-                        self.children[idx+1] = right_node;
+                        self.children.swap(idx, idx + 1);
+                        self.children[idx + 1] = right_node;
                     } else {
                         // right child is too small for split
                         self.pivots.remove(idx);
                         self.children.remove(idx);
                     }
                 }
-                return deleted
+                return deleted;
             }
         }
     }
@@ -224,7 +232,6 @@ impl Node for InternalNode {
     }
 }
 
-
 impl LeafNode {
     pub fn new() -> LeafNode {
         LeafNode {
@@ -238,10 +245,7 @@ impl LeafNode {
         k.try_extend_from_slice(keys).unwrap();
         let mut v = ArrayVec::new();
         v.try_extend_from_slice(values).unwrap();
-        LeafNode {
-            keys: k,
-            values: v, 
-        }
+        LeafNode { keys: k, values: v }
     }
 }
 
@@ -249,14 +253,14 @@ impl Node for LeafNode {
     fn split(&mut self) -> (Key, NodePtr) {
         let mid = self.keys.len() / 2;
 
-        let right_node =  Rc::new(RefCell::from(LeafNode::new_from(
+        let right_node = Rc::new(RefCell::from(LeafNode::new_from(
             &self.keys[mid..],
             &self.values[mid..],
         )));
         let pivot = self.keys[mid];
         self.keys.truncate(mid);
         self.values.truncate(mid);
-        return (pivot, right_node)
+        return (pivot, right_node);
     }
 
     fn insert(&mut self, key: Key, val: Value) {
@@ -265,7 +269,7 @@ impl Node for LeafNode {
             Err(idx) => {
                 self.keys.insert(idx, key);
                 self.values.insert(idx, val);
-            },
+            }
         }
     }
 
@@ -285,14 +289,14 @@ impl Node for LeafNode {
             Ok(idx) => {
                 self.keys.remove(idx);
                 self.values.remove(idx);
-                true 
-            },
+                true
+            }
             Err(_) => false,
         }
     }
 
     fn total_len(&self) -> usize {
-        return self.keys.len()
+        return self.keys.len();
     }
 
     fn is_full(&self) -> bool {
@@ -312,16 +316,13 @@ impl Node for LeafNode {
     }
 }
 
-
-
 #[cfg(test)]
 mod tests {
     use super::*;
 
-
     fn test_insert<I>(btree: &mut BTree, keys: I)
     where
-        I: Iterator<Item = u128> 
+        I: Iterator<Item = u128>,
     {
         let mut key: Key = [0; 1];
         let mut expected_len = 0;
@@ -338,7 +339,7 @@ mod tests {
 
     fn test_read<I>(btree: &mut BTree, keys: I)
     where
-        I: Iterator<Item = u128> 
+        I: Iterator<Item = u128>,
     {
         let mut key: Key = [0; 1];
         for n in keys {
@@ -349,7 +350,7 @@ mod tests {
 
     fn test_delete<I>(btree: &mut BTree, keys: I)
     where
-        I: Iterator<Item = u128> 
+        I: Iterator<Item = u128>,
     {
         let mut key: Key = [0; 1];
         for n in keys {
